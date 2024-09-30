@@ -16,11 +16,11 @@ def main():
     # right motor A
     motor = MoveTank(OUTPUT_A, OUTPUT_C)
     for i in range(0, 4):
-        forward(motor, 50, 3.5)
-        turnLeft(motor, -100, 100, 0.35)
+        forward(motor, 50, 3.11)
+        turnLeft(motor, -37, 37, 0.5)
     print("Square finished")
 
 
 if __name__=="__main__":
     main()
-    
+
