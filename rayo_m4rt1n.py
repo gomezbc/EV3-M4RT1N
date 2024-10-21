@@ -1,65 +1,45 @@
 #!/usr/bin/env python3
 
-# ABS(LEFT - RIGHT) >= 2000 GIRAR
-# LEFT - RIGHT Y SI EL VALOR NEGATIVO => IZQ , POSITVO => DERECHA (O AL REVES)
-
 from ev3dev2.sensor import Sensor, INPUT_3
-from ev3dev2.motor import MoveTank, OUTPUT_C, OUTPUT_A
+from ev3dev2.motor import MoveTank, OUTPUT_C, OUTPUT_A 
 
 from time import sleep
 SPEED = 15
-
-sensorWeight = {
-    0: 30,
-    1: 40,
-    2: 60,
-    3: 80,
-    4: 80,
-    5: 60,
-    6: 40,
-    7: 30
-}
-
-motorSpeed = {
-    0: 0,
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 1,
-    5: 2,
-    6: 3,
-    7: 4,
-    8: 5,
-    9: 6,
-    10: 6,
-}
+LIGHT_TARGET_WEIGHT = 10
+Kp = 0.6
 
 LOGS_FILE = 'logs.txt'
 
-def writeInfo(left, right):
+def writeInfo(light_weight):
     with open(LOGS_FILE, 'a') as f:
-        f.write("L: "+str(left) + " R: " + str(right) + " ABS: " + str(abs(left-right))+"\n")
+        f.write("light_weight: " + str(light_weight) + "\n")
 
-def hasToSteer(left, right):
-    writeInfo(left, right)
-    return abs(left - right) > 2000
+def hasToSteer(light_weight):
+    writeInfo(light_weight)
+    # print to see how much is light_weight and change 4
+    # it has to be a value low enought to not steer whe is going fordward, and to start steering when it should
+    return LIGHT_TARGET_WEIGHT - light_weight > 4
 
-def getNewSpeed(left, right):
-    leftMod = (left // 1000) % 10
-    speedLeft = (left // 1000) - leftMod
-    rightMod = (right // 1000) % 10
-    speedRight = (right // 1000) - rightMod
-    return SPEED - motorSpeed[speedLeft], SPEED - motorSpeed[speedRight]
+def getNewSpeed(light_weight):
+    error = LIGHT_TARGET_WEIGHT - light_weight
+
+    correction = Kp * error
+
+    left_speed = base_speed + correction
+    right_speed = base_speed - correction
+    return left_speed, right_speed
 
 
-def getSensorWeigths(lsa):
-    left = 0
-    right = 0
-    for i in range(0,4):
-        left = left + (lsa.value(i) * sensorWeight[i])
-    for i in range(4,8):
-        right = right + (lsa.value(i) * sensorWeight[i])
-    return left, right
+
+def getLightWeigth(lsa):
+    sensor_values = [lsa.value(i) for i in range(0,8)]
+    weighted_sum = sum(i * sensor_values[i] for i in range(8))
+    total_sum = sum(sensor_values)
+    
+    if total_sum == 0:
+        return 0
+    # it returns how much bigger is the weighted_sum compared to total_sum
+    return weighted_sum / total_sum
 
 def main():
     tank_drive = MoveTank(OUTPUT_A, OUTPUT_C)
@@ -67,8 +47,8 @@ def main():
     lsa = Sensor(INPUT_3)
     i=0
     while True:
-        left, right = getSensorWeigths(lsa)
-        if hasToSteer(left, right):
+        light_weight = getLightWeigth(lsa)
+        if hasToSteer(light_weight):
            speedLeft, speedRight = getNewSpeed(left, right)
            tank_drive.on(speedLeft, speedRight)
         else:
