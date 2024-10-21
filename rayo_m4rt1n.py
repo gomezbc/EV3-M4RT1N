@@ -34,9 +34,15 @@ motorSpeed = {
     10: 6,
 }
 
+LOGS_FILE = 'logs.txt'
+
+def writeInfo(left, right):
+    with open(LOGS_FILE, 'a') as f:
+        f.write("L: "+str(left) + " R: " + str(right) + " ABS: " + str(abs(left-right))+"\n")
 
 def hasToSteer(left, right):
-    return abs(left - right) > 3000
+    writeInfo(left, right)
+    return abs(left - right) > 2000
 
 def getNewSpeed(left, right):
     leftMod = (left // 1000) % 10
@@ -62,7 +68,6 @@ def main():
     i=0
     while True:
         left, right = getSensorWeigths(lsa)
-        print("  L " + str(left), "   " + str(right))
         if hasToSteer(left, right):
            speedLeft, speedRight = getNewSpeed(left, right)
            tank_drive.on(speedLeft, speedRight)
