@@ -7,31 +7,31 @@ from ev3dev2.sensor import Sensor, INPUT_3
 from ev3dev2.motor import MoveTank, OUTPUT_C, OUTPUT_A
 
 from time import sleep
-SPEED = 15
+SPEED = 55
 
 sensorWeight = {
-    0: 30,
-    1: 40,
-    2: 60,
-    3: 80,
-    4: 80,
-    5: 60,
-    6: 40,
-    7: 30
+    0: 7,
+    1: 5,
+    2: 3,
+    3: 1,
+    4: 1,
+    5: 3,
+    6: 5,
+    7: 7
 }
 
 motorSpeed = {
-    0: 0,
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 1,
-    5: 2,
-    6: 3,
-    7: 4,
-    8: 5,
-    9: 6,
-    10: 6,
+    0: 2,
+    1: 4,
+    2: 4,
+    3: 4,
+    4: 5,
+    5: 6,
+    6: 8,
+    7: 10,
+    8: 12,
+    9: 16,
+    10: 20,
 }
 
 LOGS_FILE = 'logs.txt'
@@ -42,13 +42,18 @@ def writeInfo(left, right):
 
 def hasToSteer(left, right):
     writeInfo(left, right)
-    return abs(left - right) > 2000
+    return abs(left - right) > 200
 
 def getNewSpeed(left, right):
-    leftMod = (left // 1000) % 10
-    speedLeft = (left // 1000) - leftMod
-    rightMod = (right // 1000) % 10
-    speedRight = (right // 1000) - rightMod
+    # mirar como ajustar mejor la velocidad de la rueda que no tiene que corregir
+    speedLeft = (left // 160)
+    speedRight = (right // 160)
+    if(speedRight > speedLeft):
+         speedLeft = speedLeft//2
+    else:
+        speedRight = speedRight//2
+    with open(LOGS_FILE, 'a') as f:
+        f.write("speedLeft: "+str(speedLeft) + " speedRight: " + str(speedRight) + "\n")
     return SPEED - motorSpeed[speedLeft], SPEED - motorSpeed[speedRight]
 
 
@@ -65,7 +70,6 @@ def main():
     tank_drive = MoveTank(OUTPUT_A, OUTPUT_C)
     tank_drive.on(SPEED,SPEED)
     lsa = Sensor(INPUT_3)
-    i=0
     while True:
         left, right = getSensorWeigths(lsa)
         if hasToSteer(left, right):
@@ -73,7 +77,6 @@ def main():
            tank_drive.on(speedLeft, speedRight)
         else:
             tank_drive.on(SPEED,SPEED)
-        i += 1
         sleep(0.05)
 
 if __name__ == "__main__":
