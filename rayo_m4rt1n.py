@@ -10,14 +10,14 @@ from time import sleep
 SPEED = 40
 
 sensorWeight = {
-    0: 30,
-    1: 40,
-    2: 60,
+    0: 25,
+    1: 35,
+    2: 55,
     3: 80,
     4: 80,
-    5: 60,
-    6: 40,
-    7: 30
+    5: 65,
+    6: 45,
+    7: 35
 }
 
 motorSpeed = {
