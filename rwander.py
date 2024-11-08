@@ -63,10 +63,10 @@ class Robot(Node):
         # Reorganize scan indexes to make it easier to work with. 
         # 0 index corresponds to the back side of the robot for both, scan and bearings.
         self._scan = [self._scan[i - 800] for i in range(self._scan_count)]    
-    
+
         # TODO: add your code here
         # IMPORTANT: valor pequeño cerca, grande lejos
-        th = 3.5
+        th = 2.7
         # con el th ignoramos los valores muy lejanos, es decir el ruido
         right = np.mean(list(filter(lambda x: x < th, self._scan[350:650])))
         front = np.mean(list(filter(lambda x: x < th, self._scan[650:950])))
@@ -77,34 +77,36 @@ class Robot(Node):
         left = left if left else th
         right = right if right else th
 
-        right_abs = np.mean(self._scan[200:650])
-        left_abs = np.mean(self._scan[950:1400])
+        right_abs = np.mean(list(filter(lambda x: x < th, self._scan[200:700])))
+        left_abs = np.mean(list(filter(lambda x: x < th, self._scan[900:1400])))
 
-        if front > 2.0:
+        # Pareta ia ikutsen hari bada gelditu eta biratu
+        if (front == -np.inf) or (left == -np.inf) or (right == -np.inf):
+            speed = 0.0
+        elif front > 1.5:
             speed = 0.5
-        elif front > 1.0:
+        elif front > 0.8:
             speed = 0.3
         else:
             speed = 0.1
 
-        sides_dif = abs(left-right)
-
         # Use random turn angle to ensure it doesn't always follow same path
-        # Two cases: near so left and right are close, far so left and right can also be close
-        if front > 2.0:
-            # Wall is close but not a lot
-            turn_angle = rd.uniform(0.1, 0.3)
+        # Distanzia berdina eskuin eta ezker, zuzen joan0
+        if front > 1.8 and (abs(left_abs - right_abs) < 0.5):
+            turn = 0.0
+        # Pareta baten aurka badoa edo oso gertu badago, absoluto begiratu eta asko biratu
+        elif ((front < 0.8) and (abs(left - right) < 0.5)) or (left == -np.inf) or (right == -np.inf):
+            turn_angle = rd.uniform(0.6, 0.8)
+            if left_abs < right_abs:
+                turn = -turn_angle
+            else:
+                turn = turn_angle
         else:
-            # Wall is in front
-            turn_angle = rd.uniform(0.5, 0.6)
-
-        if left < right:
-            turn = -turn_angle
-        else:
-            turn = turn_angle
-
-        self.get_logger().info("Left %.2f | Front %.2f | Right %.2f | Speed %.2f | Turn %.2f"%(left,front,right, speed, turn))
-        self.get_logger().info("Left_abs %.2f | Right_abs %.2f"%(left_abs,right_abs))
+            turn_angle = rd.uniform(0.2, 0.3)
+            if left < right:
+                turn = -turn_angle
+            else:
+                turn = turn_angle
         ## end TODO
         cmd_vel_msg_ = Twist()
         cmd_vel_msg_.linear.x  = speed
@@ -113,13 +115,13 @@ class Robot(Node):
         self._cmd_vel_pub.publish( cmd_vel_msg_ ) 
     
     def pose_callback(self, msg):
-        i = 1
-        # lo he comentado porq ahora no lo necesitamos y ensucia el log
-        #self.get_logger().info("Robot pose: x: %.2f, y: %.2f, theta: %.2f"%(msg.x, msg.y, msg.theta))
+        self.get_logger().info("Robot pose: x: %.2f, y: %.2f, theta: %.2f"%(msg.x, msg.y, msg.theta))
         
 
                                             
 def main(args=None):
+    with open("/tmp/rwander.csv", "w") as f:
+        f.write("x,y,theta\n")
     rclpy.init(args=args)
     rwander_node = Robot()
     try:
