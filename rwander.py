@@ -65,22 +65,23 @@ class Robot(Node):
         self._scan = [self._scan[i - 800] for i in range(self._scan_count)]    
 
         # TODO: add your code here
-        # IMPORTANT: valor pequeño cerca, grande lejos
+        # IMPORTANT: Ezarri threshold bat, bakarrik gertu dauden objektuak kontuan hartzeko
         th = 2.7
-        # con el th ignoramos los valores muy lejanos, es decir el ruido
+        # Threshold-arekin oso urruneko balioak baztertzen ditugu, hau da, zarata edo interferentziak ezabatzen ditugu
         right = np.mean(list(filter(lambda x: x < th, self._scan[350:650])))
         front = np.mean(list(filter(lambda x: x < th, self._scan[650:950])))
         left = np.mean(list(filter(lambda x: x < th, self._scan[950:1250])))
 
-        # if the values are nan set to th
+        # Sektore bakoitzeko irakurketa hutsik badago, ezarri threshold balioa (urruneko objektuak bakarrik badaude)
         front = front if front else th
         left = left if left else th
         right = right if right else th
 
+        # Alde osoaren batez besteko balioa kalkulatu (ikuspegi zabalagoa), ezkerrean eta eskuinean
         right_abs = np.mean(list(filter(lambda x: x < th, self._scan[200:700])))
         left_abs = np.mean(list(filter(lambda x: x < th, self._scan[900:1400])))
 
-        # Pareta ia ikutsen hari bada gelditu eta biratu
+        # Pareta baten aurka ia talka egiteko egoeran badago, gelditu; bestela, objektuetatik hurbilago dagoen heinean moteldu
         if (front == -np.inf) or (left == -np.inf) or (right == -np.inf):
             speed = 0.0
         elif front > 1.5:
@@ -90,11 +91,10 @@ class Robot(Node):
         else:
             speed = 0.1
 
-        # Use random turn angle to ensure it doesn't always follow same path
-        # Distanzia berdina eskuin eta ezker, zuzen joan0
+        # Ezkerreko eta eskuineko distantziak antzekoak badira eta aurrean objektuak urrun badaude, zuzen jarraitu
         if front > 1.8 and (abs(left_abs - right_abs) < 0.5):
             turn = 0.0
-        # Pareta baten aurka badoa edo oso gertu badago, absoluto begiratu eta asko biratu
+        # Pareta baten aurka doala dirudienean (left eta right antzekoak dira) edo oso gertu dagoenean, biratu angelu handiarekin
         elif ((front < 0.8) and (abs(left - right) < 0.5)) or (left == -np.inf) or (right == -np.inf):
             turn_angle = rd.uniform(0.6, 0.8)
             if left_abs < right_abs:
@@ -120,8 +120,6 @@ class Robot(Node):
 
                                             
 def main(args=None):
-    with open("/tmp/rwander.csv", "w") as f:
-        f.write("x,y,theta\n")
     rclpy.init(args=args)
     rwander_node = Robot()
     try:
