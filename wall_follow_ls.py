@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import rclpy
 from rclpy.node import Node
 
@@ -88,21 +89,27 @@ class Robot(Node):
         ypos = np.empty((self.scan_count, 1), float)
 
         # regresioa kalkulatzeko erabiliko ditugun irakurketak
-        j = 10
+        j = 300
 
         # Aukeratu "irakurketa motzak" eta kalkulatu dagozkien puntuak / Select the short readings and calculate the corresponding points
         for i in range(800, 1200):
-            try:
-                ypos[i] = self.scan[i] * np.sin(self.bearings[i])
-                #self.get_logger().info("ypos[%d]: %.2f" % (i, ypos[i]))
-                # filtrar en el scan los inf
-                if ypos[i] != np.inf:
-                    xpos[i] = np.sqrt(pow(self.scan[i], 2) - pow(ypos[i], 2))  # ou algum valor padrão que faça sentido no seu contexto
-                else:
-                    xpos[i] = np.nan
-            except Exception:
-                self.get_logger().info("ypos[%d]: %.2f" % (i, ypos[i]))
-                self.get_logger().info("xpos[%d]: %.2f" % (i, xpos[i]))
+            ypos[i] = self.scan[i] * np.sin(self.bearings[i])
+            if ypos[i] != np.inf:
+                xpos[i] = np.sqrt(pow(self.scan[i], 2) - pow(ypos[i], 2))  # ou algum valor padrão que faça sentido no seu contexto
+            else:
+                # esto ns si es la mejora sol
+                th = 3.0
+                ypos[i] = th
+                xpos[i] = th
+                    
+        for i in range(800,1200):
+            if np.isnan(ypos[i]) or np.isinf(ypos[i]) or np.isnan(xpos[i]) or np.isinf(xpos[i]):
+                self.get_logger().info("xpos[%d], ypos[%d]: %s, %s" % (i, i, str(xpos[i]), str(ypos[i])))
+        
+        # Mover los indices de 800,1200 a 0,400. Y darle la vuelta para que hagamos resize desde la derecha para alante
+        xpos[0:400] = xpos[800:1200:-1]
+        ypos[0:400] = ypos[800:1200:-1]
+
         # 2.- Erregresio lineala: hautatutako puntuek irudikatzen duten zuzenaren ezaugarriak / Linear regression: compute the line from the selected points
         c1 = 0.0
         c0 = 0.0
@@ -116,18 +123,19 @@ class Robot(Node):
             model = LinearRegression()
             model.fit(xpos, ypos)
             c0 = float(model.intercept_)
-            c1 = float(model.coef_)
+            c1 = float(model.coef_) # c1 represents the slope (m) of the fitted line y = mx + b
 
             # Kalkulatu robota eta paretaren arteko angelua / Calculate the angle between the robot and the wall
-            theta = 0.0
+            theta = np.arctan(c1)
             self.get_logger().info(
                 "Malda: %.2f Angelua: %.2f (%.2f degrees)"
                 % (c1, theta, m.degrees(theta))
             )
 
             # 3.- Abiadurak finkatu / Set velocities
-            w = self.kp * theta
-            v = 0.0
+            #w = self.kp * theta
+            w = 0.0
+            v = 1.0
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
             ## END TODO
 
