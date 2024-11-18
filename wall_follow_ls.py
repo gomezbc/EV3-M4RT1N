@@ -89,7 +89,7 @@ class Robot(Node):
         ypos = np.empty((self.scan_count, 1), float)
 
         # regresioa kalkulatzeko erabiliko ditugun irakurketak
-        j = 300
+        j = 50
 
         # Aukeratu "irakurketa motzak" eta kalkulatu dagozkien puntuak / Select the short readings and calculate the corresponding points
         for i in range(800, 1200):
@@ -106,9 +106,9 @@ class Robot(Node):
             if np.isnan(ypos[i]) or np.isinf(ypos[i]) or np.isnan(xpos[i]) or np.isinf(xpos[i]):
                 self.get_logger().info("xpos[%d], ypos[%d]: %s, %s" % (i, i, str(xpos[i]), str(ypos[i])))
         
-        # Mover los indices de 800,1200 a 0,400. Y darle la vuelta para que hagamos resize desde la derecha para alante
-        xpos[0:400] = xpos[800:1200:-1]
-        ypos[0:400] = ypos[800:1200:-1]
+        # Darle la vuelta para que hagamos resize desde la derecha para alante
+        xpos = np.fliplr(xpos[800:1200]).copy()
+        ypos = np.fliplr(ypos[800:1200]).copy()
 
         # 2.- Erregresio lineala: hautatutako puntuek irudikatzen duten zuzenaren ezaugarriak / Linear regression: compute the line from the selected points
         c1 = 0.0
@@ -133,9 +133,9 @@ class Robot(Node):
             )
 
             # 3.- Abiadurak finkatu / Set velocities
-            #w = self.kp * theta
-            w = 0.0
-            v = 1.0
+            w = self.kp * theta
+            #w = 0.0
+            v = 0.6
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
             ## END TODO
 
