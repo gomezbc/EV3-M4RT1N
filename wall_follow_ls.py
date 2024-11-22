@@ -23,7 +23,7 @@ class Robot(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("kp", 1.5),
+                ("kp", 1.3),
                 ("vel_topic", "cmd_vel"),
                 ("odom_topic", "odom"),
                 ("output_filename", "wf_ls"),
@@ -88,15 +88,13 @@ class Robot(Node):
         ypos = np.empty((self.scan_count, 1), float)
 
         # regresioa kalkulatzeko erabiliko ditugun irakurketak
-        j = 50
+        j = 80
 
         # Aukeratu "irakurketa motzak" eta kalkulatu dagozkien puntuak / Select the short readings and calculate the corresponding points
         for i in range(800, 1200):
+            xpos[i] = self.scan[i] * np.cos(self.bearings[i])
             ypos[i] = self.scan[i] * np.sin(self.bearings[i])
-            if ypos[i] != np.inf:
-                xpos[i] = np.sqrt(pow(self.scan[i], 2) - pow(ypos[i], 2))
-            else:
-                xpos[i] = np.inf
+        
         """
         for i in range(800, 1200):
             if np.isnan(ypos[i]) or np.isinf(ypos[i]) or np.isnan(xpos[i]) or np.isinf(xpos[i]):
@@ -105,7 +103,7 @@ class Robot(Node):
         filtered_ypos = np.empty((self.scan_count, 1), float)
         filtered_xpos = np.empty((self.scan_count, 1), float)
         y = 0
-        th = 1.8
+        th = 3.0
         for i in range(800, 1200):
             # si la diferencia de distancia hacia delante esta dentro del th o los valores no son nullos, es una posicion filtrada
             if (xpos[i] < th) and (not(np.isnan(ypos[i])) and not(np.isinf(ypos[i])) and not(np.isnan(xpos[i])) and not(np.isinf(xpos[i]))):
@@ -133,6 +131,7 @@ class Robot(Node):
         theta = 0.0
 
         # comprobamos que la j no sea mayor al numero de elementos que tenemos
+        self.get_logger().info("j: %.2f y: %.2f" % (j,y))
         # j = min(j, y)
         # Como tenemos el th, nos interesa calcularlo con todos los valores
         j = y
@@ -159,7 +158,7 @@ class Robot(Node):
             theta = np.arctan(c1)
             # 3.- Abiadurak finkatu / Set velocities
             w = - self.kp * theta
-            v = 0.6
+            v = 1.0
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
             # END TODO
 
