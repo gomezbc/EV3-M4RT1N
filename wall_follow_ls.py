@@ -4,8 +4,8 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+import os
+from geometry_msgs.msg import Twist, Pose
 import numpy as np
 import math as m
 from tf_transformations import euler_from_quaternion
@@ -25,7 +25,7 @@ class Robot(Node):
             parameters=[
                 ("kp", 1.3),
                 ("vel_topic", "cmd_vel"),
-                ("odom_topic", "odom"),
+                ("pose_topic", "/gz_pose"),
                 ("output_filename", "wf_ls"),
             ],
         )
@@ -34,7 +34,7 @@ class Robot(Node):
         # velocity topic
         self.vel_topic = self.get_parameter("vel_topic").value
         # odometry topic
-        self.odom_topic = self.get_parameter("odom_topic").value
+        self.pose_topic = self.get_parameter('pose_topic').value
 
         """ output filename (with no extension).
         kp value and .csv extension will be added
@@ -42,15 +42,16 @@ class Robot(Node):
         """
         f = self.get_parameter("output_filename").value
         fout = f + "_" + str(self.kp) + ".csv"
-        file = open(fout, "w")
-        self.csvwriter = csv.writer(file, delimiter=",")
+        self.file = open(fout, "w")
+        self.file.write("funciono")
+        self.csvwriter = csv.writer(self.file, delimiter=",")
         self.csvwriter.writerow(["kp", "error", "v", "w", "x", "y"])
 
         self.laser_sub = self.create_subscription(
             LaserScan, "scan", self.follow_wall, 1
         )
-        self.odom_sub = self.create_subscription(
-            Odometry, self.odom_topic, self.get_position, 1
+        self.pose_sub = self.create_subscription(
+            Pose, self.pose_topic, self.get_position, 1
         )
         self.vel_pub = self.create_publisher(Twist, self.vel_topic, 1)
 
@@ -65,9 +66,9 @@ class Robot(Node):
 
     def get_position(self, msg):
         # Gets robot pose (x, y, yaw) from odometry
-        self.rx = msg.pose.pose.position.x
-        self.ry = msg.pose.pose.position.y
-        quat = msg.pose.pose.orientation
+        self.rx = msg.position.x
+        self.ry = msg.position.y
+        quat = msg.orientation
         roll, pitch, yaw = euler_from_quaternion([quat.x, quat.y, quat.z, quat.w])
         self.rtheta = yaw
 
@@ -94,7 +95,7 @@ class Robot(Node):
         for i in range(800, 1200):
             xpos[i] = self.scan[i] * np.cos(self.bearings[i])
             ypos[i] = self.scan[i] * np.sin(self.bearings[i])
-        
+
         """
         for i in range(800, 1200):
             if np.isnan(ypos[i]) or np.isinf(ypos[i]) or np.isnan(xpos[i]) or np.isinf(xpos[i]):
@@ -160,6 +161,7 @@ class Robot(Node):
             w = - self.kp * theta
             v = 1.0
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
+            self.get_logger().info("x: %.2f, y = %.2f" % (self.rx, self.ry))
             # END TODO
 
             cmd_vel_msg.linear.x = v
@@ -187,6 +189,10 @@ class Robot(Node):
             ]
         )
         self.vel_pub.publish(cmd_vel_msg)
+
+        def __del__(self):
+            if self.file:
+                self.file.close()
 
 
 def main(args=None):
