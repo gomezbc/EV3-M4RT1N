@@ -84,85 +84,79 @@ class Robot(Node):
 
         self.scan = [scan.ranges[i - 800] for i in range(self.scan_count)]
         # TODO Add code here
-        # 1.- Kalkulatu irakurketa "motzen" proiekzioak / Compute the projection of short readings
+        # 1.- Kalkulatu irakurketa "motzen" proiekzioak
         xpos = np.empty((self.scan_count, 1), float)
         ypos = np.empty((self.scan_count, 1), float)
 
-        # regresioa kalkulatzeko erabiliko ditugun irakurketak
-        j = 80
-
-        # Aukeratu "irakurketa motzak" eta kalkulatu dagozkien puntuak / Select the short readings and calculate the corresponding points
+        # Aukeratu irakurketa motzak eta kalkulatu dagozkien puntuak
         for i in range(800, 1200):
             xpos[i] = self.scan[i] * np.cos(self.bearings[i])
             ypos[i] = self.scan[i] * np.sin(self.bearings[i])
 
-        """
-        for i in range(800, 1200):
-            if np.isnan(ypos[i]) or np.isinf(ypos[i]) or np.isnan(xpos[i]) or np.isinf(xpos[i]):
-                self.get_logger().info("xpos[%d], ypos[%d]: %s, %s" % (i, i, str(xpos[i]), str(ypos[i])))
-        """
+        # Filtratu datu baliogabeak eta gorde egokiak
         filtered_ypos = np.empty((self.scan_count, 1), float)
         filtered_xpos = np.empty((self.scan_count, 1), float)
         y = 0
-        th = 3.0
+        th = 3.0  # Threshold-a irakurketak aukeratzeko
         for i in range(800, 1200):
-            # si la diferencia de distancia hacia delante esta dentro del th o los valores no son nullos, es una posicion filtrada
             if (xpos[i] < th) and (not(np.isnan(ypos[i])) and not(np.isinf(ypos[i])) and not(np.isnan(xpos[i])) and not(np.isinf(xpos[i]))):
                 filtered_xpos[y] = xpos[i]
                 filtered_ypos[y] = ypos[i]
                 y += 1
 
-        # Darle la vuelta para que hagamos resize desde la derecha para alante
-        i2 = y-1
+        # Aldatu ordena irakurketak egokitzeko
+        i2 = y - 1
         for i1 in range(y):
             xpos[i1] = filtered_xpos[i2]
             ypos[i1] = filtered_ypos[i2]
             i2 -= 1
 
-        # xpos = np.flip(filtered_xpos.copy(), axis=0)
-        # ypos = np.flip(filtered_ypos.copy(), axis=0)
+        # 2.- Erregresio lineala kalkulatu
+        c1 = 0.0  # Malda
+        c0 = 0.0  # Ebakidura
+        theta = 0.0  # Angelua
 
-        # ensure that the array is contiguous in memory before resizing
-        # xpos = np.ascontiguousarray(xpos)
-        # ypos = np.ascontiguousarray(ypos)
-
-        # 2.- Erregresio lineala: hautatutako puntuek irudikatzen duten zuzenaren ezaugarriak / Linear regression: compute the line from the selected points
-        c1 = 0.0
-        c0 = 0.0
-        theta = 0.0
-
-        # comprobamos que la j no sea mayor al numero de elementos que tenemos
-        self.get_logger().info("j: %.2f y: %.2f" % (j,y))
-        # j = min(j, y)
-        # Como tenemos el th, nos interesa calcularlo con todos los valores
+        # Puntu nahiko badira, erregresioa kalkulatu
         j = y
-        """
-        for i in range(j):
-            self.get_logger().info("xpos[%d], ypos[%d]: %s, %s" % (i, i, str(xpos[i]), str(ypos[i])))
-        """
         if j > 5:
-            # KONTUZ!! j indizeak regresioa kalkulatzeko erabiliko den puntu kopurua adierazten du!!
-            # NOTE!! The j index indicates the number of points used in the regression!!
             xpos.resize(j, 1)
             ypos.resize(j, 1)
 
             model = LinearRegression()
             model.fit(xpos, ypos)
             c0 = float(model.intercept_)
-            c1 = float(model.coef_)  # c1 represents the slope (m) of the fitted line y = mx + b
-            # Kalkulatu robota eta paretaren arteko angelua / Calculate the angle between the robot and the wall
-            self.get_logger().info(
-                "Malda: %.2f Angelua: %.2f (%.2f degrees)"
-                % (c1, theta, m.degrees(theta))
-            )
+            c1 = float(model.coef_)  # Malda (m)
 
-            theta = np.arctan(c1)
-            # 3.- Abiadurak finkatu / Set velocities
-            w = - self.kp * theta
-            v = 1.0
+            theta = np.arctan(c1)  # Angelua kalkulatu
+            w = - self.kp * theta  # Angular velocity
+            v = 1.0  # Linear velocity
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
             self.get_logger().info("x: %.2f, y = %.2f" % (self.rx, self.ry))
-            # END TODO
+
+            cmd_vel_msg.linear.x = v
+            cmd_vel_msg.angular.z = w
+
+        else:
+            # Puntu nahiko ez badaude
+            self.get_logger().info("Not enough points for applying the linear regression")
+            cmd_vel_msg.linear.x = 0.2
+            cmd_vel_msg.angular.z = 0.0
+
+        # Datuak CSV-ra idatzi
+        self.csvwriter.writerow(
+            [
+                f"{self.kp:.2f}",
+                f"{c0:.2f}",
+                f"{c1:.2f}",
+                f"{theta:.2f}",
+                f"{cmd_vel_msg.linear.x:.2f}",
+                f"{cmd_vel_msg.angular.z:.2f}",
+                f"{self.rx:.2f}",
+                f"{self.ry:.2f}",
+            ]
+        )
+        self.vel_pub.publish(cmd_vel_msg)
+        # END TODO
 
             cmd_vel_msg.linear.x = v
             cmd_vel_msg.linear.y = 0.0
