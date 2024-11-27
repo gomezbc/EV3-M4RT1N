@@ -125,9 +125,10 @@ class Robot(Node):
             model = LinearRegression()
             model.fit(xpos, ypos)
             c0 = float(model.intercept_)
-            c1 = float(model.coef_)  # Malda (m)
-
+            c1 = float(model.coef_) # c1 represents the slope (m) of the fitted line y = mx + b
+            # Kalkulatu robota eta paretaren arteko angelua / Calculate the angle between the robot and the wall
             theta = np.arctan(c1)  # Angelua kalkulatu
+            # Abiadura angelarrean minus jarri dugu bestela paretaren kontra biratzen zelako
             w = - self.kp * theta  # Angular velocity
             v = 1.0  # Linear velocity
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
