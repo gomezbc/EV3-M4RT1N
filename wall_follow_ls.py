@@ -23,7 +23,7 @@ class Robot(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("kp", 1.3),
+                ("kp", 1.1),
                 ("vel_topic", "cmd_vel"),
                 ("pose_topic", "/gz_pose"),
                 ("output_filename", "wf_ls"),
@@ -88,23 +88,24 @@ class Robot(Node):
         xpos = np.empty((self.scan_count, 1), float)
         ypos = np.empty((self.scan_count, 1), float)
 
-        # Aukeratu irakurketa motzak eta kalkulatu dagozkien puntuak
+        # Kalkulatu irakurketen x eta y posizioak
         for i in range(800, 1200):
             xpos[i] = self.scan[i] * np.cos(self.bearings[i])
             ypos[i] = self.scan[i] * np.sin(self.bearings[i])
 
-        # Filtratu datu baliogabeak eta gorde egokiak
+        # Iragazi datu baliogabeak eta gorde egokiak
         filtered_ypos = np.empty((self.scan_count, 1), float)
         filtered_xpos = np.empty((self.scan_count, 1), float)
         y = 0
         th = 3.0  # Threshold-a irakurketak aukeratzeko
         for i in range(800, 1200):
+            # Balioa inf edo nan bada, edo robotarekiko perpendikular 3,0m-tara baino urrutiago badago, iragaziko dugu
             if (xpos[i] < th) and (not(np.isnan(ypos[i])) and not(np.isinf(ypos[i])) and not(np.isnan(xpos[i])) and not(np.isinf(xpos[i]))):
                 filtered_xpos[y] = xpos[i]
                 filtered_ypos[y] = ypos[i]
                 y += 1
 
-        # Aldatu ordena irakurketak egokitzeko
+        # J zentzua izateko, posizioak alderantziz jarri behar ditugu, horrela puntuak eskuinetik aurrera doaz.
         i2 = y - 1
         for i1 in range(y):
             xpos[i1] = filtered_xpos[i2]
@@ -115,9 +116,11 @@ class Robot(Node):
         c1 = 0.0  # Malda
         c0 = 0.0  # Ebakidura
         theta = 0.0  # Angelua
-
-        # Puntu nahiko badira, erregresioa kalkulatu
+        
+        # Gure kasuan, ikusi dugu puntu guztiak hartzeak portaera egokiena ematen duela.
+        # y: xpos eta ypos-en tamaina da
         j = y
+        # Puntu nahiko badira, erregresioa kalkulatu
         if j > 5:
             xpos.resize(j, 1)
             ypos.resize(j, 1)
@@ -133,7 +136,7 @@ class Robot(Node):
                 % (c1, theta, m.degrees(theta))
             )
             
-            # Abiadura angelarrean minus jarri dugu bestela paretaren kontra biratzen zelako
+            # Abiadura angelarrean minus jarri dugu bestela paretaren kontra biratzen zuelako
             w = - self.kp * theta  # Angular velocity
             v = 1.0  # Linear velocity
             self.get_logger().info("Abiadurak: v = %.2f w = %.2f" % (v, w))
