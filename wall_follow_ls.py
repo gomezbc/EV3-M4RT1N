@@ -25,11 +25,11 @@ class Robot(Node):
             parameters=[
                 ("kp", 1.1),
                 ("vel_topic", "cmd_vel"),
-                ("pose_topic", "/gz_pose"),
+                ("pose_topic", "/gz_pose"), # rosbot_pose gz_pose-rekin aldatu dugu, egelako paketeak erabili ditugu, eta gure kasuan rosbot_pose topik-a ez zuen informaziorik bidaltzen
                 ("output_filename", "wf_ls"),
             ],
         )
-        self.kp = self.get_parameter("kp").value
+        self.kp = 1.1
 
         # velocity topic
         self.vel_topic = self.get_parameter("vel_topic").value
@@ -116,7 +116,7 @@ class Robot(Node):
         c1 = 0.0  # Malda
         c0 = 0.0  # Ebakidura
         theta = 0.0  # Angelua
-        
+
         # Gure kasuan, ikusi dugu puntu guztiak hartzeak portaera egokiena ematen duela.
         # y: xpos eta ypos-en tamaina da
         j = y
@@ -135,7 +135,7 @@ class Robot(Node):
                 "Malda: %.2f Angelua: %.2f (%.2f degrees)"
                 % (c1, theta, m.degrees(theta))
             )
-            
+
             # Abiadura angelarrean minus jarri dugu bestela paretaren kontra biratzen zuelako
             w = - self.kp * theta  # Angular velocity
             v = 1.0  # Linear velocity
@@ -143,35 +143,11 @@ class Robot(Node):
             self.get_logger().info("x: %.2f, y = %.2f" % (self.rx, self.ry))
 
             cmd_vel_msg.linear.x = v
-            cmd_vel_msg.angular.z = w
-
-        else:
-            # Puntu nahiko ez badaude
-            self.get_logger().info("Not enough points for applying the linear regression")
-            cmd_vel_msg.linear.x = 0.2
-            cmd_vel_msg.angular.z = 0.0
-
-        # Datuak CSV-ra idatzi
-        self.csvwriter.writerow(
-            [
-                f"{self.kp:.2f}",
-                f"{c0:.2f}",
-                f"{c1:.2f}",
-                f"{theta:.2f}",
-                f"{cmd_vel_msg.linear.x:.2f}",
-                f"{cmd_vel_msg.angular.z:.2f}",
-                f"{self.rx:.2f}",
-                f"{self.ry:.2f}",
-            ]
-        )
-        self.vel_pub.publish(cmd_vel_msg)
-        # END TODO
-
-            cmd_vel_msg.linear.x = v
             cmd_vel_msg.linear.y = 0.0
             cmd_vel_msg.angular.z = w
 
         else:
+            # Puntu nahiko ez badaude
             self.get_logger().info(
                 "Not enough points for applying the linear regression"
             )
@@ -179,11 +155,12 @@ class Robot(Node):
             cmd_vel_msg.linear.y = 0.0
             cmd_vel_msg.angular.z = 0.0
 
+        self.vel_pub.publish(cmd_vel_msg)
+        # END TODO
+
         self.csvwriter.writerow(
             [
                 f"{self.kp:.2f}",
-                f"{c0:.2f}",
-                f"{c1:.2f}",
                 f"{theta:.2f}",
                 f"{cmd_vel_msg.linear.x:.2f}",
                 f"{cmd_vel_msg.angular.z:.2f}",
