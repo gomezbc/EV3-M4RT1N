@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 
-from ev3dev2.sensor import Sensor, INPUT_3
+from ev3dev2.sensor import Sensor, INPUT_3, INPUT_4
 from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
 from time import sleep
 
 SPEED = 30
 INITIAL_THRESHOLD = 70
-Kp = 1.0 
+Kp = 1.2
 
 def main():
     tank_drive = MoveTank(OUTPUT_B, OUTPUT_C)
     lsa = Sensor(INPUT_3)
     tank_drive.on(SPEED, SPEED)
+    with open("v2.log", "w") as f:
+        f.write("LOGS DE MARTIN\n")
 
     while True:
         lsa_values = [lsa.value(i) for i in range(8)]
@@ -23,7 +25,7 @@ def main():
         if black_readings:
             avg_black_value = sum(black_readings) / len(black_readings)
             # Set the threshold slightly below the average black value
-            threshold = avg_black_value * 0.8
+            threshold = avg_black_value * 1.6
         else:
             threshold = INITIAL_THRESHOLD
 
@@ -38,6 +40,8 @@ def main():
         
         # Proportional control
         steer = Kp * error
+        with open("v2.log", "a") as f:
+            f.write("kp(%s): error: %s  | steer: %s |  blacks: %s  | th: %s\n" % (str(Kp), str(error), str(steer), str(black), str(threshold)))
         
         # Adjust motor speeds based on the steer value
         left_speed = SPEED - steer
