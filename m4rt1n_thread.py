@@ -6,6 +6,7 @@ from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
 from time import sleep
 from threading import Thread, Event
 from collections import deque
+from enum import Enum
 
 SPEED = 30
 INITIAL_THRESHOLD = 70
@@ -28,13 +29,37 @@ TODO:
     NEGRO1: R10 G17 B15 
 """
 
+class State(Enum):
+    RUNNING = "running"
+    PIZZATIME = "pizzatime"
+
+
+class StateMachine:
+    def __init__(self):
+        self.state = State.RUNNING  # Estado inicial
+        self.state_changed = Event()  # Señal de cambio de estado
+
+    def get_state(self):
+        """Devuelve el estado actual."""
+        return self.state
+
+    def set_state(self, new_state: State):
+        """Establece un nuevo estado y notifica a los hilos."""
+        if self.state != new_state:
+            self.state = new_state
+            self.state_changed.set()  # Señaliza que el estado ha cambiado
+
+    def wait_for_state_change(self):
+        """Bloquea el hilo hasta que el estado cambie."""
+        self.state_changed.wait()
+        self.state_changed.clear()
+
 class waitForTones(Thread):
     def __init__(self, threadID, frequency):
         Thread.__init__(self)
         self.threadID = threadID
         self.sound = Sound()
         self.running = True
-        self.frequency = frequency
 
     def run(self):
         while self.running:
@@ -44,148 +69,114 @@ class waitForTones(Thread):
         self.sound.beep()
 
 class Drive(Thread):
-    def __init__(self, threadID, lsa, tank_drive, stop_event):
+    def __init__(self, threadID, lsa, tank_drive, state_machine):
         Thread.__init__(self)
         self.threadID = threadID
         self.lsa = lsa
         self.tank_drive = tank_drive
-        self.running = True
-        self.stop_event = stop_event
+        self.state_machine = state_machine
 
     def run(self):
         self.tank_drive.on(SPEED, SPEED)
-        while self.running:
-            # Check if the stop event is set
-            if self.stop_event.is_set():
-                self.tank_drive.off()
-                print("Stopping drive: It's pizza time!")
+        while True:
+            current_state = self.state_machine.get_state()
+
+            if current_state == State.PIZZATIME:
+                print("Pizza time detected, stopping drive!")
+                self.tank_drive.off()  # Stop the robot
                 break
 
-            # Main driving logic
-            lsa_values = [lsa.value(i) for i in range(8)]
+            if current_state == State.RUNNING:
+                lsa_values = [self.lsa.value(i) for i in range(8)]
+                black_readings = [value for value in lsa_values if value < INITIAL_THRESHOLD]
+                if black_readings:
+                    avg_black_value = sum(black_readings) / len(black_readings)
+                    threshold = avg_black_value * 1.6
+                else:
+                    threshold = INITIAL_THRESHOLD
 
-            # Filter out black readings using the initial threshold
-            black_readings = [value for value in lsa_values if value < INITIAL_THRESHOLD]
+                black = [0] * 8
+                for i in range(8):
+                    if lsa_values[i] < threshold:
+                        black[i] = 1
 
-            # Calculate the average of the black readings
-            if black_readings:
-                avg_black_value = sum(black_readings) / len(black_readings)
-                # Set the threshold slightly below the average black value
-                threshold = avg_black_value * 1.6
-            else:
-                threshold = INITIAL_THRESHOLD
+                error = sum((i - 3.5) * black[i] for i in range(8))
+                steer = Kp * error
 
-            black = [0, 0, 0, 0, 0, 0, 0, 0]
-            
-            for i in range(8):
-                if lsa_values[i] < threshold:
-                    black[i] = 1
-            
-            # Calculate error as the difference between the center and the detected black line
-            error = sum((i - 3.5) * black[i] for i in range(8))
-            
-            # Proportional control
-            steer = Kp * error
-            with open("v2.log", "a") as f:
-                f.write("kp(%s): error: %s  | steer: %s |  blacks: %s  | th: %s\n" % (str(Kp), str(error), str(steer), str(black), str(threshold)))
-            
-            # Adjust motor speeds based on the steer value
-            left_speed = SPEED - steer
-            right_speed = SPEED + steer
+                left_speed = SPEED - steer
+                right_speed = SPEED + steer
 
-            self.tank_drive.on(left_speed, right_speed)
+                self.tank_drive.on(left_speed, right_speed)
             
             sleep(0.01)
 
 class ColorReader(Thread):
-    def __init__(self, threadID, sensor, stop_event):
+    def __init__(self, threadID, sensor, state_machine):
         Thread.__init__(self)
         self.threadID = threadID
         self.sensor = sensor
-        self.reading = True
-        self.lastReads = deque(maxlen=4)
-        self.stop_event = stop_event
+        self.state_machine = state_machine
+        self.recent_colors = deque(maxlen=5)
 
-    def run(self):
-        # print("ColorReader started")
-        while self.reading:
-            if self.sensor.rgb is None:
-                # print("Error: Sensor de color no está funcionando correctamente.")
-                continue
-            red, green, blue = self.sensor.rgb
-            # print("Red: " + str(red) + ", Green: " + str(green) + ", Blue: " + str(blue))
-            if self.isPizzaTime(red, green, blue):
-                # print("Pizza time detected! Signaling to stop driving.")
-                self.stop_event.set()  # Signal the event
-                self.reading = False  # Stop reading
-            sleep(0.3)
-                
-    def isPizzaTime(self, red, green, blue):
-        isPizzaTime = False
-        if len(self.lastReads) == 4:
-            avg_r, avg_g, avg_b = self.calculate_average()
-            diff_r, diff_g, diff_b = self.calculate_diff((red, green, blue), (avg_r, avg_g, avg_b))
-            diff_sum = diff_r + diff_g + diff_b
-            print(diff_sum)
-            isPizzaTime =  diff_sum >= 20
-        self.add_reading(red, green, blue)
-        print(isPizzaTime)
-        return isPizzaTime
+    def start(self):
+        current_state = self.state_machine.get_state()
+        while current_state == State.RUNNING:
+            print(self.sensor.rgb)
+            red = self.sensor.rgb[0]
+            green = self.sensor.rgb[1]
+            blue = self.sensor.rgb[2]
+            #print("Is red: " + str(self.isRed(red, green, blue)))
+            #print("Is floor: " + str(self.isFloor(red, green, blue)))
+            #print("Is pizaa time: " + str(self.isTrafficLight(red, green, blue)))
+            if self.isTrafficLight(red, green, blue):
+                self.state_machine.set_state(State.PIZZATIME)
+            sleep(0.2)
 
+    def add_color(self, rgb):
+        """Añade un nuevo color a la cola."""
+        self.recent_colors.append(rgb)
 
-    def add_reading(self, red, green, blue):
-        """Add a new RGB reading to the queue."""
-        self.lastReads.append((red, green, blue))
-
-    def calculate_average(self):
-        """Calculate the average RGB values from the queue."""
-        if not self.lastReads:
-            return (0, 0, 0)  # Return (0, 0, 0) if the queue is empty
-        
-        red_total = green_total = blue_total = 0
-        for r, g, b in self.lastReads:
-            red_total += r
-            green_total += g
-            blue_total += b
-        
-        count = len(self.lastReads)
-        return (
-            red_total / count,
-            green_total / count,
-            blue_total / count
-        )
+    def isRed(self, red, green, blue):
+        r_red, r_green, r_blue = 41, 12, 10
+        min_intensity = 20
     
-    def calculate_diff(self, rgb, avg_rgb):
-        """Calculate the absolute difference between two RGB values."""
-        r, g, b = rgb
-        avg_r, avg_g, avg_b = avg_rgb
-        return (
-            abs(avg_r - r),
-            abs(avg_g - g),
-            abs(avg_b - b)
-        )
+        if red > green * 1.5 and red > blue * 1.5 and red > min_intensity:
+            return True
+        return False
+    
+    def isFloor(self, red, green, blue):
+        MIN_INTENSITY = 50
+        if red >= MIN_INTENSITY and green >= MIN_INTENSITY and blue >= MIN_INTENSITY:
+            return True
+        
+        return False
 
+
+    def isTrafficLight(self, red, green, blue):
+        BLACK_TH = (20,25,25)
+
+        if red <= BLACK_TH[0] and green <= BLACK_TH[1] and blue <= BLACK_TH[2]:
+            return False
+        
+        return not self.isFloor(red, green, blue)
 
 
 if __name__ == '__main__':
+    state_machine = StateMachine()
     tank_drive = MoveTank(OUTPUT_B, OUTPUT_C)
     lsa = Sensor(INPUT_3)
-    stop_event = Event()  # Create the shared event
     with open("v2.log", "w") as f:
         f.write("LOGS DE MARTIN\n")
-
-    d = Drive(2, lsa, tank_drive, stop_event)
-    d.daemon = True
+    d = Drive(2, lsa, tank_drive, state_machine)
+    d.setDaemon = True
     d.start()
 
     cs = ColorSensor(INPUT_4)
-    cr = ColorReader(3, cs, stop_event)
-    cr.daemon = True
+    cr = ColorReader(3, cs, state_machine)
     cr.start()
 
-    """
     t = waitForTones(1, 1500)
-    t.daemon = True
+    t.setDaemon = True
     t.start()
 
     ts = TouchSensor(INPUT_2)
@@ -198,4 +189,3 @@ if __name__ == '__main__':
             t.running = False
             running = False
         sleep(0.01)
-    """
