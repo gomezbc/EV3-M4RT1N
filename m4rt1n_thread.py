@@ -8,7 +8,7 @@ from threading import Thread, Event, Lock
 from collections import deque
 from enum import Enum
 
-SPEED = 25
+SPEED = 30
 INITIAL_THRESHOLD = 70
 Kp = 1.2
 
@@ -128,12 +128,17 @@ class Drive(Thread):
             sleep(0.01)
 
 class ColorReader(Thread):
+    ROUTE_RED = [2,1,3]
+
     def __init__(self, threadID, sensor, state_machine):
         Thread.__init__(self)
         self.threadID = threadID
         self.sensor = sensor
         self.state_machine = state_machine
         self.recent_colors = deque(maxlen=5)
+        self.traffic_light_colors = []
+        self.traffic_red_pos = 0
+        self.current_route_pos = 0
 
     def start(self):
         current_state = self.state_machine.get_state()
@@ -147,7 +152,42 @@ class ColorReader(Thread):
                 self.add_color((red, green, blue))
             
             if self.isTrafficLight(red, green, blue):
-                self.state_machine.set_state(State.PIZZATIME)
+                # self.state_machine.set_state(State.PIZZATIME)
+                #  !isRecognizedColor && isTraffic => V/A, R => 2 -> 
+                # [1,2,3] ; [0,0,1] ->
+                if len(self.traffic_light_colors) >= 3:
+                    print("pila completa")
+                    # miramos codigo de semaforo
+                    for i in range(3):
+                        r,g,b = self.traffic_light_colors[i]
+                        if self.isRed(r,g,b):
+                            self.traffic_red_pos = i + 1 #ajustar al array de ROUTE_RED
+                            break       
+                    
+                    if self.ROUTE_RED[self.current_route_pos] == self.traffic_red_pos:
+                        self.current_route_pos += 1
+                        self.state_machine.set_state(State.PIZZATIME)
+
+                    sleep(1.0)
+                    self.traffic_light_colors.clear()
+
+                else:
+                    print("traficc else")
+                    # si no hay -> meter el color
+                    # si hay -> mirar con el anterior, si hay diferencia se mete
+                    # cuando completemos mirar cuales es rojo y ponerlo asi: [0,0,1]
+                    if len(self.traffic_light_colors) == 0:
+                        self.traffic_light_colors.append((red, green, blue))
+                    else:
+                        past_red = self.traffic_light_colors[-1][0]
+                        past_green = self.traffic_light_colors[-1][1]
+                        past_blue = self.traffic_light_colors[-1][2]
+                        delta_red = abs(red - past_red)
+                        delta_green = abs(green - past_green)
+                        delta_blue = abs(blue - past_blue)
+                        print("deltas: ",delta_red, delta_green, delta_blue)
+                        if delta_red > 10 or delta_green > 10 or delta_blue > 10:
+                            self.traffic_light_colors.append((red, green, blue))
             sleep(0.2)
 
     def add_color(self, rgb):
