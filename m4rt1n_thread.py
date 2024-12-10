@@ -3,13 +3,10 @@ from ev3dev2.sensor.lego import TouchSensor, ColorSensor
 from ev3dev2.sound import Sound
 from ev3dev2.sensor import Sensor, INPUT_2, INPUT_3, INPUT_4
 from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
-from time import time, sleep
+from time import sleep, time
 from threading import Thread, Event, Lock
 from collections import deque
 from enum import Enum
-
-prev_time = time()  # Tiempo inicial
-cumulative_error = 0     # Error acumulado inicial
 
 SPEED = 25
 INITIAL_THRESHOLD = 70
@@ -76,6 +73,8 @@ class Drive(Thread):
         self.lsa = lsa
         self.tank_drive = tank_drive
         self.state_machine = state_machine
+        self.error_history_size = 20
+        self.error_history = deque(maxlen=self.error_history_size)
 
     def getBlacks(self):
         lsa_values = [self.lsa.value(i) for i in range(8)]
@@ -93,21 +92,20 @@ class Drive(Thread):
         return black
     
     def steer(self, black):
-        global prev_time, cumulative_error
-
-        # Calcula el tiempo actual y la diferencia temporal
-        current_time = time()  # Tiempo en segundos
-        delta_time = current_time - prev_time if 'prev_time' in globals() else 0.01
-        prev_time = current_time
-
         # Calcula el error actual
         error = sum((i - 3.5) * black[i] for i in range(8))
 
-        # Actualiza la suma acumulada del error
-        cumulative_error += error * delta_time
+        self.error_history.append(error)
+
+        # Calcula el error promedio de las últimas n lecturas
+        cumulative_error = sum(self.error_history) / len(self.error_history) if self.error_history else 0
 
         # Calcula el valor de steer usando los términos proporcional e integral
         steer = Kp * error + Ki * cumulative_error
+        
+        # Si es intersección, sigue recto
+        if (sum(black) >= 5):
+            steer = 0
 
         # Ajusta las velocidades de los motores
         left_speed = SPEED - steer
@@ -121,11 +119,12 @@ class Drive(Thread):
     def deliverPizza(self, black):
         if sum(black) >= 5:  # Detect bifurcation on the right side
             # Now fine tune to find 2 blacks between positions 3 and 5
-            sleep(0.6)
+            sleep(1.0)
+            # TODO: no termina de girar
             self.tank_drive.on_for_seconds(5, -5, 1.0)
+            self.tank_drive.on(5, -5)
             while not (black[3] and black[5]):
-                self.tank_drive.on(5, -5)
-                sleep(0.05)
+                sleep(0.03)
                 black = self.getBlacks()
             print("Black line found, stopping adjustment.")
             self.state_machine.set_state(State.RUNNING)
@@ -146,7 +145,7 @@ class Drive(Thread):
             sleep(0.01)
 
 class ColorReader(Thread):
-    ROUTE_RED = [2,1,3]
+    ROUTE_RED = [3,1,2]
 
     def __init__(self, threadID, sensor, state_machine):
         Thread.__init__(self)
@@ -157,6 +156,7 @@ class ColorReader(Thread):
         self.traffic_light_colors = []
         self.traffic_red_pos = 0
         self.current_route_pos = 0
+        self.last_trafic_read_time = 0.0
 
     def start(self):
         current_state = self.state_machine.get_state()
@@ -168,10 +168,18 @@ class ColorReader(Thread):
             if not self.isBlack(red, green, blue) and not self.isRecognizedColor(red, green, blue):
                 self.add_color((red, green, blue))
             
+            current_time = time()
+            # Si pasan más de 2 segundos de la ultima lectura de traffic light y tiene elementos, limpiamos la lista
+            if (current_time - self.last_trafic_read_time > 2) and len(self.traffic_light_colors) > 0:
+                self.traffic_light_colors.clear()
+                print("---TIME-OUT---")
+                self.last_trafic_read_time = current_time 
+            
             if self.isTrafficLight(red, green, blue):
                 # self.state_machine.set_state(State.PIZZATIME)
                 #  !isRecognizedColor && isTraffic => V/A, R => 2 -> 
                 # [1,2,3] ; [0,0,1] ->
+                self.last_trafic_read_time = current_time
                 if len(self.traffic_light_colors) >= 3:
                     print("pila completa")
                     # miramos codigo de semaforo
@@ -194,6 +202,8 @@ class ColorReader(Thread):
                     # si hay -> mirar con el anterior, si hay diferencia se mete
                     # cuando completemos mirar cuales es rojo y ponerlo asi: [0,0,1]
                     if len(self.traffic_light_colors) == 0:
+                        print("------Traffic Light-------")
+                        print("[" + str(self.isRed(red, green, blue)) + "]"+ "("+str(red)+", "+str(green)+", "+str(red)+")")
                         self.traffic_light_colors.append((red, green, blue))
                     else:
                         past_red = self.traffic_light_colors[-1][0]
@@ -204,6 +214,7 @@ class ColorReader(Thread):
                         delta_blue = abs(blue - past_blue)
                         # print("deltas: ",delta_red, delta_green, delta_blue)
                         if delta_red > 10 or delta_green > 10 or delta_blue > 10:
+                            print("[" + str(self.isRed(red, green, blue)) + "]" + "("+str(red)+", "+str(green)+", "+str(red)+")")
                             self.traffic_light_colors.append((red, green, blue))
             sleep(0.2)
 
@@ -212,14 +223,15 @@ class ColorReader(Thread):
         self.recent_colors.append(rgb)
 
     def isBlack(self, red, green, blue):
-        BLACK_THRESHOLD = (20, 25, 25)
-        return red <= BLACK_THRESHOLD[0] and green <= BLACK_THRESHOLD[1] and blue <= BLACK_THRESHOLD[2]
+        BLACK_THRESHOLD = 20
+        return abs(red-green) <= BLACK_THRESHOLD and abs(green-blue) <= BLACK_THRESHOLD
 
     def isRecognizedColor(self, red, green, blue):
         """Example method to check for specific recognized colors."""
         return self.isRed(red, green, blue)  # Add other recognized colors if needed
     
     def isRed(self, red, green, blue):
+        # TODO: en el primer semaforo falla
         r_red, r_green, r_blue = 41, 12, 10
         min_intensity = 20
     
