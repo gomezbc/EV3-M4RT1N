@@ -3,14 +3,18 @@ from ev3dev2.sensor.lego import TouchSensor, ColorSensor
 from ev3dev2.sound import Sound
 from ev3dev2.sensor import Sensor, INPUT_2, INPUT_3, INPUT_4
 from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
-from time import sleep
+from time import time, sleep
 from threading import Thread, Event, Lock
 from collections import deque
 from enum import Enum
 
-SPEED = 30
+prev_time = time()  # Tiempo inicial
+cumulative_error = 0     # Error acumulado inicial
+
+SPEED = 25
 INITIAL_THRESHOLD = 70
 Kp = 1.2
+Ki = 0.12
 
 # crear una maquina de estados
 """
@@ -89,13 +93,29 @@ class Drive(Thread):
         return black
     
     def steer(self, black):
-        error = sum((i - 3.5) * black[i] for i in range(8))
-        steer = Kp * error
+        global prev_time, cumulative_error
 
+        # Calcula el tiempo actual y la diferencia temporal
+        current_time = time()  # Tiempo en segundos
+        delta_time = current_time - prev_time if 'prev_time' in globals() else 0.01
+        prev_time = current_time
+
+        # Calcula el error actual
+        error = sum((i - 3.5) * black[i] for i in range(8))
+
+        # Actualiza la suma acumulada del error
+        cumulative_error += error * delta_time
+
+        # Calcula el valor de steer usando los términos proporcional e integral
+        steer = Kp * error + Ki * cumulative_error
+
+        # Ajusta las velocidades de los motores
         left_speed = SPEED - steer
         right_speed = SPEED + steer
 
+        # Aplica los valores calculados a los motores
         self.tank_drive.on(left_speed, right_speed)
+
             
     
     def deliverPizza(self, black):
@@ -104,7 +124,6 @@ class Drive(Thread):
             sleep(0.6)
             self.tank_drive.on_for_seconds(5, -5, 1.0)
             while not (black[3] and black[5]):
-                print("Fine tuning: Steering right slowly...")
                 self.tank_drive.on(5, -5)
                 sleep(0.05)
                 black = self.getBlacks()
@@ -118,7 +137,6 @@ class Drive(Thread):
             black = self.getBlacks()
             
             if current_state == State.PIZZATIME:
-                print("Pizza time detected, stopping drive!")
                 self.deliverPizza(black)
                 self.steer(black)
 
@@ -143,7 +161,6 @@ class ColorReader(Thread):
     def start(self):
         current_state = self.state_machine.get_state()
         while current_state == State.RUNNING:
-            print(self.sensor.rgb)
             red, green, blue = self.sensor.rgb
             #print("Is red: " + str(self.isRed(red, green, blue)))
             #print("Is floor: " + str(self.isFloor(red, green, blue)))
@@ -166,13 +183,13 @@ class ColorReader(Thread):
                     
                     if self.ROUTE_RED[self.current_route_pos] == self.traffic_red_pos:
                         self.current_route_pos += 1
+                        print("Pizza time detected, stopping drive!")
                         self.state_machine.set_state(State.PIZZATIME)
 
                     sleep(1.0)
                     self.traffic_light_colors.clear()
 
                 else:
-                    print("traficc else")
                     # si no hay -> meter el color
                     # si hay -> mirar con el anterior, si hay diferencia se mete
                     # cuando completemos mirar cuales es rojo y ponerlo asi: [0,0,1]
@@ -185,7 +202,7 @@ class ColorReader(Thread):
                         delta_red = abs(red - past_red)
                         delta_green = abs(green - past_green)
                         delta_blue = abs(blue - past_blue)
-                        print("deltas: ",delta_red, delta_green, delta_blue)
+                        # print("deltas: ",delta_red, delta_green, delta_blue)
                         if delta_red > 10 or delta_green > 10 or delta_blue > 10:
                             self.traffic_light_colors.append((red, green, blue))
             sleep(0.2)
