@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-from ev3dev2.sensor.lego import TouchSensor, ColorSensor
+from ev3dev2.sensor.lego import TouchSensor, ColorSensor, UltrasonicSensor
 from ev3dev2.sound import Sound
-from ev3dev2.sensor import Sensor, INPUT_2, INPUT_3, INPUT_4
+from ev3dev2.sensor import Sensor, INPUT_1, INPUT_2, INPUT_3, INPUT_4
 from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
 from time import sleep, time
 from threading import Thread, Event, Lock
@@ -262,14 +262,30 @@ class ColorReader(Thread):
     def isTrafficLight(self, red, green, blue):
         return not self.isFloor(red, green, blue) and not self.isBlack(red, green, blue)
 
+class ObstacleAvoidance(Thread):
+    def __init__(self, threadID, ultrasonic_sensor, tank_drive):
+        Thread.__init__(self)
+        self.threadID = threadID
+        self.ultrasonic_sensor = ultrasonic_sensor
+        self.tank_drive = tank_drive
+        self.running = True
+
+    def run(self):
+        while self.running:
+            distance = self.ultrasonic_sensor.distance_centimeters
+            if distance < 30: 
+                reduced_speed = SPEED * 0.2
+                self.tank_drive.on(reduced_speed, reduced_speed)
+            else:
+                self.tank_drive.on(SPEED, SPEED) 
+            sleep(0.5)
 
 
 if __name__ == '__main__':
     state_machine = StateMachine()
     tank_drive = MoveTank(OUTPUT_B, OUTPUT_C)
     lsa = Sensor(INPUT_3)
-    # with open("v2.log", "w") as f:
-        # f.write("LOGS DE MARTIN\n")
+
     d = Drive(2, lsa, tank_drive, state_machine)
     d.setDaemon = True
     d.start()
@@ -277,6 +293,12 @@ if __name__ == '__main__':
     cs = ColorSensor(INPUT_4)
     cr = ColorReader(3, cs, state_machine)
     cr.start()
+
+    us = UltrasonicSensor(INPUT_1) # CAMBIAR AL QUE LO PONGAMOS
+    oa = ObstacleAvoidance(4, us, tank_drive)
+    oa.setDaemon(True)
+    oa.start()
+
 
     #t = waitForTones(1, 1500)
     #t.setDaemon = True
