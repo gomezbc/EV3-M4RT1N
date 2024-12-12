@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from ev3dev2.sensor.lego import TouchSensor, ColorSensor, UltrasonicSensor
 from ev3dev2.sound import Sound
-from ev3dev2.sensor import Sensor, INPUT_1, INPUT_2, INPUT_3, INPUT_4
+from ev3dev2.sensor import Sensor, INPUT_2, INPUT_3, INPUT_4
 from ev3dev2.motor import MoveTank, OUTPUT_B, OUTPUT_C
 from time import sleep, time
 from threading import Thread, Event, Lock
@@ -11,6 +11,7 @@ from enum import Enum
 SPEED = 25
 INITIAL_THRESHOLD = 70
 Kp = 1.2
+KpOut = 5.0
 Ki = 0.12
 
 # crear una maquina de estados
@@ -52,27 +53,14 @@ class StateMachine:
         self.state_changed.wait()
         self.state_changed.clear()
 
-class waitForTones(Thread):
-    def __init__(self, threadID, frequency):
-        Thread.__init__(self)
-        self.threadID = threadID
-        self.sound = Sound()
-        self.running = True
-
-    def run(self):
-        while self.running:
-            for j in range(0,20):             # Do twenty times.
-                self.sound.play_tone(self.frequency, 0.2) #1500Hz for 0.2s
-                sleep(0.5)
-        self.sound.beep()
-
 class Drive(Thread):
-    def __init__(self, threadID, lsa, tank_drive, state_machine):
+    def __init__(self, threadID, lsa, tank_drive, state_machine, obstacle_event):
         Thread.__init__(self)
         self.threadID = threadID
         self.lsa = lsa
         self.tank_drive = tank_drive
         self.state_machine = state_machine
+        self.obstacle_event = obstacle_event  # Evento para escuchar la presencia de obstáculos
         self.error_history_size = 20
         self.error_history = deque(maxlen=self.error_history_size)
 
@@ -95,21 +83,28 @@ class Drive(Thread):
         # Calcula el error actual
         error = sum((i - 3.5) * black[i] for i in range(8))
 
-        self.error_history.append(error)
-
         # Calcula el error promedio de las últimas n lecturas
         cumulative_error = sum(self.error_history) / len(self.error_history) if self.error_history else 0
 
         # Calcula el valor de steer usando los términos proporcional e integral
-        steer = Kp * error + Ki * cumulative_error
+        is_out = (sum(black) < 1)
+        if is_out:
+            steer = KpOut * cumulative_error
+        else:
+            self.error_history.append(error)
+            steer = Kp * error + Ki * cumulative_error
         
         # Si es intersección, sigue recto
         if (sum(black) >= 5):
-            steer = 0
-
+            steer = 10.0
+        
         # Ajusta las velocidades de los motores
         left_speed = SPEED - steer
         right_speed = SPEED + steer
+
+        if self.obstacle_event.is_set():
+            left_speed = left_speed * 0.05
+            right_speed = right_speed * 0.05
 
         # Aplica los valores calculados a los motores
         self.tank_drive.on(left_speed, right_speed)
@@ -119,9 +114,9 @@ class Drive(Thread):
     def deliverPizza(self, black):
         if sum(black) >= 5:  # Detect bifurcation on the right side
             # Now fine tune to find 2 blacks between positions 3 and 5
-            sleep(1.0)
+            sleep(0.5)
             # TODO: no termina de girar
-            self.tank_drive.on_for_seconds(5, -5, 1.0)
+            self.tank_drive.on_for_seconds(5, -5, 0.6)
             self.tank_drive.on(5, -5)
             while not (black[3] and black[5]):
                 sleep(0.03)
@@ -130,6 +125,7 @@ class Drive(Thread):
             self.state_machine.set_state(State.RUNNING)
 
     def run(self):
+        print("--MOTOR--")
         self.tank_drive.on(SPEED, SPEED)
         while True:
             current_state = self.state_machine.get_state()
@@ -145,7 +141,7 @@ class Drive(Thread):
             sleep(0.01)
 
 class ColorReader(Thread):
-    ROUTE_RED = [3,1,2]
+    ROUTE_RED = [1,2,3]
 
     def __init__(self, threadID, sensor, state_machine):
         Thread.__init__(self)
@@ -158,13 +154,14 @@ class ColorReader(Thread):
         self.current_route_pos = 0
         self.last_trafic_read_time = 0.0
 
-    def start(self):
+    def run(self):
+        print("--COLOR SENSOR--")
         current_state = self.state_machine.get_state()
         while current_state == State.RUNNING:
             red, green, blue = self.sensor.rgb
             #print("Is red: " + str(self.isRed(red, green, blue)))
             #print("Is floor: " + str(self.isFloor(red, green, blue)))
-            #print("Is pizaa time: " + str(self.isTrafficLight(red, green, blue)))
+            #print("Is pizaa time: " + str(self.isTrafficLight(red, green, blue))) 18 96 107 =>  
             if not self.isBlack(red, green, blue) and not self.isRecognizedColor(red, green, blue):
                 self.add_color((red, green, blue))
             
@@ -181,7 +178,6 @@ class ColorReader(Thread):
                 # [1,2,3] ; [0,0,1] ->
                 self.last_trafic_read_time = current_time
                 if len(self.traffic_light_colors) >= 3:
-                    print("pila completa")
                     # miramos codigo de semaforo
                     for i in range(3):
                         r,g,b = self.traffic_light_colors[i]
@@ -203,7 +199,7 @@ class ColorReader(Thread):
                     # cuando completemos mirar cuales es rojo y ponerlo asi: [0,0,1]
                     if len(self.traffic_light_colors) == 0:
                         print("------Traffic Light-------")
-                        print("[" + str(self.isRed(red, green, blue)) + "]"+ "("+str(red)+", "+str(green)+", "+str(red)+")")
+                        print("[" + str(self.isRed(red, green, blue)) + "]"+ "("+str(red)+", "+str(green)+", "+str(blue)+")")
                         self.traffic_light_colors.append((red, green, blue))
                     else:
                         past_red = self.traffic_light_colors[-1][0]
@@ -214,7 +210,7 @@ class ColorReader(Thread):
                         delta_blue = abs(blue - past_blue)
                         # print("deltas: ",delta_red, delta_green, delta_blue)
                         if delta_red > 10 or delta_green > 10 or delta_blue > 10:
-                            print("[" + str(self.isRed(red, green, blue)) + "]" + "("+str(red)+", "+str(green)+", "+str(red)+")")
+                            print("[" + str(self.isRed(red, green, blue)) + "]" + "("+str(red)+", "+str(green)+", "+str(blue)+")")
                             self.traffic_light_colors.append((red, green, blue))
             sleep(0.2)
 
@@ -230,12 +226,8 @@ class ColorReader(Thread):
         """Example method to check for specific recognized colors."""
         return self.isRed(red, green, blue)  # Add other recognized colors if needed
     
-    def isRed(self, red, green, blue):
-        # TODO: en el primer semaforo falla
-        r_red, r_green, r_blue = 41, 12, 10
-        min_intensity = 20
-    
-        if red > green * 1.5 and red > blue * 1.5 and red > min_intensity:
+    def isRed(self, red, green, blue):  
+        if red > 20 and red > green * 1.5 and red > blue * 1.5 :
             return True
         return False
 
@@ -263,54 +255,44 @@ class ColorReader(Thread):
         return not self.isFloor(red, green, blue) and not self.isBlack(red, green, blue)
 
 class ObstacleAvoidance(Thread):
-    def __init__(self, threadID, ultrasonic_sensor, tank_drive):
+    def __init__(self, threadID, ultrasonic_sensor, tank_drive, obstacle_event):
         Thread.__init__(self)
         self.threadID = threadID
         self.ultrasonic_sensor = ultrasonic_sensor
         self.tank_drive = tank_drive
+        self.obstacle_event = obstacle_event  # Evento para indicar la presencia de un obstáculo
         self.running = True
 
     def run(self):
+        print("--DISTANCE SENSOR--")
         while self.running:
             distance = self.ultrasonic_sensor.distance_centimeters
-            if distance < 30: 
-                reduced_speed = SPEED * 0.2
-                self.tank_drive.on(reduced_speed, reduced_speed)
+            
+            if distance < 20.0:
+                # Obstáculo cercano, pero no tan cerca, aún podemos manejarlo
+                self.obstacle_event.set()
             else:
-                self.tank_drive.on(SPEED, SPEED) 
-            sleep(0.5)
+                # No hay obstáculos, limpiamos el evento
+                self.obstacle_event.clear()
 
+            sleep(0.25)
 
 if __name__ == '__main__':
     state_machine = StateMachine()
     tank_drive = MoveTank(OUTPUT_B, OUTPUT_C)
     lsa = Sensor(INPUT_3)
 
-    d = Drive(2, lsa, tank_drive, state_machine)
+    us = UltrasonicSensor(INPUT_2)
+    obstacle_event = Event() 
+    oa = ObstacleAvoidance(4, us, tank_drive, obstacle_event)
+    oa.setDaemon = True
+    oa.start()
+
+    d = Drive(2, lsa, tank_drive, state_machine, obstacle_event)
     d.setDaemon = True
     d.start()
 
     cs = ColorSensor(INPUT_4)
     cr = ColorReader(3, cs, state_machine)
+    cr.setDaemon = True
     cr.start()
-
-    us = UltrasonicSensor(INPUT_1) # CAMBIAR AL QUE LO PONGAMOS
-    oa = ObstacleAvoidance(4, us, tank_drive)
-    oa.setDaemon(True)
-    oa.start()
-
-
-    #t = waitForTones(1, 1500)
-    #t.setDaemon = True
-    #t.start()
-
-    ts = TouchSensor(INPUT_2)
-    running = True
-    counter = 0
-    while running:
-        ts.wait_for_bump()
-        counter = counter + 1
-        if counter >=5:
-            t.running = False
-            running = False
-        sleep(0.01)
